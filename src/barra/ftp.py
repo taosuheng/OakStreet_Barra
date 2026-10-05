@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, TypeVar
 
+from .proxy import ProxiedFTP, Proxy
+
 log = logging.getLogger(__name__)
 
 T = TypeVar("T")
@@ -61,17 +63,22 @@ class FtpCredentials:
 
 
 class BarraFTP:
-    """Context-managed FTP session that reconnects and retries on transient errors."""
+    """Context-managed FTP session that reconnects and retries on transient errors.
+
+    With ``proxy`` set, the control and data connections are tunnelled through it.
+    """
 
     def __init__(
         self,
         credentials: FtpCredentials,
         *,
+        proxy: Proxy | None = None,
         timeout: float = 60.0,
         retries: int = 3,
         backoff: float = 5.0,
     ) -> None:
         self.credentials = credentials
+        self.proxy = proxy
         self.timeout = timeout
         self.retries = retries
         self.backoff = backoff
@@ -132,8 +139,12 @@ class BarraFTP:
 
     def _connect(self) -> None:
         c = self.credentials
-        log.debug("connecting to %s:%s as %s", c.host, c.port, c.user)
-        ftp = ftplib.FTP(timeout=self.timeout)
+        if self.proxy is None:
+            log.debug("connecting to %s:%s as %s", c.host, c.port, c.user)
+            ftp = ftplib.FTP(timeout=self.timeout)
+        else:
+            log.debug("connecting to %s:%s as %s via %s", c.host, c.port, c.user, self.proxy)
+            ftp = ProxiedFTP(self.proxy, timeout=self.timeout)
         try:
             ftp.connect(c.host, c.port)
             ftp.login(c.user, c.password)

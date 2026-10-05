@@ -20,6 +20,7 @@ The runtime uses only the standard library. `pytest` and `pyftpdlib` are needed 
 | `BARRA_FTP_PASSWORD` | FTP password (required) |
 | `BARRA_FTP_HOST` | FTP host, default `ftp.barra.com` |
 | `BARRA_FTP_PORT` | FTP port, default `21` |
+| `BARRA_FTP_PROXY` | Proxy URL, used when `--proxy` is not given (see [Proxy](#proxy)) |
 | `BARRA_DATA_ROOT` | Output folder, used when `--root` is not given |
 
 ## Usage
@@ -33,6 +34,7 @@ barra-download --root /data/barra --start 20260901                 # 1 Sep throu
 
 Other options:
 - `--remote-dir`: override the FTP folder (default `/cne5/`).
+- `--proxy`: connect through a proxy (see [Proxy](#proxy)).
 - `--force`: re-download files that are already on disk.
 - `-v`: debug logging.
 - `python -m barra` works the same as `barra-download`.
@@ -45,6 +47,22 @@ For each date, CNE5 fetches:
 - `FPD_CNE5L_yymmdd.zip`
 - `SMD_CNE5_Market_Data_yymmdd.zip`
 - `SMD_CNE5L_100_UnadjCov_yymmdd.zip`
+
+### Proxy
+
+The connection is direct unless a proxy is given with `--proxy` or `BARRA_FTP_PROXY`. The system-wide `ftp_proxy` / `all_proxy` variables are not read.
+
+```bash
+barra-download --root /data/barra --proxy http://proxy.corp:8080       # HTTP CONNECT
+barra-download --root /data/barra --proxy socks5h://127.0.0.1:1080     # SOCKS5, proxy resolves ftp.barra.com
+barra-download --root /data/barra --proxy socks5://127.0.0.1:1080      # SOCKS5, name resolved locally
+```
+
+The URL is `scheme://[user:password@]host:port`; the port is required. Percent-encode special characters in the user name or password (`@` is `%40`). Put a URL with a password in `BARRA_FTP_PROXY` rather than on the command line, where other users of the machine can see it. The password is never logged.
+
+Both the FTP control connection and every data connection go through the proxy, so the proxy must allow tunnels to port 21 **and** to the server's passive data ports (high, unpredictable ports). Many HTTP proxies only allow `CONNECT` to port 443 and answer `403`; a SOCKS5 proxy is usually the better choice.
+
+A proxy that rejects the login or the destination ends the run immediately with exit code `1`. A proxy that is down, or that cannot reach the FTP server, is retried like any other network failure.
 
 ### Output layout
 
@@ -78,6 +96,8 @@ for r in results:
     print(r.date, r.status, r.missing)
 ```
 
+To go through a proxy, pass `proxy=Proxy.parse("socks5h://127.0.0.1:1080")` (or `proxy=Proxy.from_env()`, which reads `BARRA_FTP_PROXY`) to `BarraFTP`; import `Proxy` from `barra`.
+
 To add a model, define another `ModelSpec` in `src/barra/models.py` and register it in `MODELS`.
 
 ## Tests
@@ -86,4 +106,4 @@ To add a model, define another `ModelSpec` in `src/barra/models.py` and register
 .venv/bin/pytest
 ```
 
-`tests/test_ftp_integration.py` starts a local `pyftpdlib` server and exercises the real `ftplib` path, including reconnecting after a dropped connection.
+`tests/test_ftp_integration.py` starts a local `pyftpdlib` server and exercises the real `ftplib` path, including reconnecting after a dropped connection. It also runs the download through local HTTP CONNECT and SOCKS5 proxies (`tests/proxy_servers.py`).

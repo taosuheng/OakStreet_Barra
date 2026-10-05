@@ -3,6 +3,7 @@ from datetime import date
 import pytest
 
 from barra import cli
+from barra.proxy import Proxy, ProxyError
 
 MON = date(2026, 9, 28)
 
@@ -12,7 +13,8 @@ def run(monkeypatch, fake_ftp, root):
     monkeypatch.setenv("BARRA_FTP_USER", "u")
     monkeypatch.setenv("BARRA_FTP_PASSWORD", "p")
     monkeypatch.delenv("BARRA_DATA_ROOT", raising=False)
-    monkeypatch.setattr(cli, "BarraFTP", lambda creds: fake_ftp)
+    monkeypatch.delenv("BARRA_FTP_PROXY", raising=False)
+    monkeypatch.setattr(cli, "BarraFTP", lambda creds, proxy=None: fake_ftp)
     return lambda *args: cli.main(["--root", str(root), *args])
 
 
@@ -94,3 +96,39 @@ def test_missing_credentials_exit_1(run, monkeypatch, caplog):
 
     assert run("--date", "20260928") == 1
     assert "BARRA_FTP_PASSWORD" in caplog.text
+
+
+def test_proxy_from_flag_or_env(run, remote, monkeypatch, fake_ftp):
+    seen = []
+    monkeypatch.setattr(cli, "BarraFTP", lambda creds, proxy=None: seen.append(proxy) or fake_ftp)
+    remote.add_day(MON)
+
+    assert run("--date", "20260928") == 0
+    monkeypatch.setenv("BARRA_FTP_PROXY", "http://env.proxy:8080")
+    assert run("--date", "20260928") == 0
+    assert run("--date", "20260928", "--proxy", "socks5h://flag.proxy:1080") == 0
+
+    assert seen == [None, Proxy("http", "env.proxy", 8080), Proxy("socks5h", "flag.proxy", 1080)]
+
+
+def test_invalid_proxy_is_a_usage_error(run, monkeypatch, capsys):
+    with pytest.raises(SystemExit) as exc:
+        run("--proxy", "proxy.corp:8080")
+    assert exc.value.code == 2
+
+    monkeypatch.setenv("BARRA_FTP_PROXY", "http://alice:s3cret@proxy.corp")
+    with pytest.raises(SystemExit) as exc:
+        run("--date", "20260928")
+    assert exc.value.code == 2
+    assert "s3cret" not in capsys.readouterr().err
+
+
+def test_proxy_refusal_exit_1(run, monkeypatch, caplog):
+    def refuse(creds, proxy=None):
+        raise ProxyError(f"proxy {proxy} refused CONNECT ftp.barra.com:21: HTTP/1.1 403 Forbidden")
+
+    monkeypatch.setattr(cli, "BarraFTP", refuse)
+
+    assert run("--date", "20260928", "--proxy", "http://alice:s3cret@proxy.corp:8080") == 1
+    assert "403 Forbidden" in caplog.text
+    assert "s3cret" not in caplog.text
