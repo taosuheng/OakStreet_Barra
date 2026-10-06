@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import ftplib
 import logging
 import os
 import sys
@@ -11,9 +10,12 @@ import zipfile
 from datetime import date, datetime
 from pathlib import Path
 
+import paramiko
+
 from .download import COMPLETE, NO_DATA, PARTIAL, DayResult, fetch_range
 from .ftp import BarraFTP, FtpCredentials, MissingCredentialsError
 from .models import MODELS
+from .proxy import ENV_PROXY, Proxy, ProxyError
 
 log = logging.getLogger("barra")
 
@@ -27,11 +29,18 @@ def _parse_date(s: str) -> date:
         raise argparse.ArgumentTypeError(f"invalid date {s!r}, expected YYYYMMDD") from None
 
 
+def _parse_proxy(s: str) -> Proxy:
+    try:
+        return Proxy.parse(s)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="barra-download",
         description="Download Barra Models Direct files and unzip them into <root>/<yyyy>/. "
-        "FTP credentials are read from $BARRA_FTP_USER and $BARRA_FTP_PASSWORD.",
+        "SFTP credentials are read from $BARRA_FTP_USER and $BARRA_FTP_PASSWORD.",
     )
     p.add_argument(
         "--root",
@@ -44,7 +53,14 @@ def build_parser() -> argparse.ArgumentParser:
     when.add_argument("--date", type=_parse_date, help="single date YYYYMMDD (default: today)")
     when.add_argument("--start", type=_parse_date, help="first date of a range, YYYYMMDD")
     p.add_argument("--end", type=_parse_date, help="last date of a range, YYYYMMDD (default: today)")
-    p.add_argument("--remote-dir", help="FTP directory (default: the model's, e.g. /cne5/)")
+    p.add_argument("--remote-dir", help="remote directory (default: the model's, e.g. /cne5/)")
+    p.add_argument(
+        "--proxy",
+        type=_parse_proxy,
+        default=os.environ.get(ENV_PROXY) or None,
+        help="connect through a proxy: http://[user:password@]host:port (HTTP CONNECT), "
+        f"socks5://... or socks5h://... (default: ${ENV_PROXY}, else a direct connection)",
+    )
     p.add_argument("--force", action="store_true", help="re-download files already on disk")
     p.add_argument("-v", "--verbose", action="store_true", help="debug logging")
     return p
@@ -62,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    if not args.verbose:
+        logging.getLogger("paramiko").setLevel(logging.WARNING)
 
     model = MODELS[args.model]
     remote_dir = args.remote_dir or model.remote_dir
@@ -73,15 +91,18 @@ def main(argv: list[str] | None = None) -> int:
         if end < start:
             parser.error(f"--end {end:%Y%m%d} is before --start {start:%Y%m%d}")
 
+    if args.proxy is not None:
+        log.info("using proxy %s", args.proxy)
+
     try:
-        with BarraFTP(FtpCredentials.from_env()) as client:
+        with BarraFTP(FtpCredentials.from_env(), proxy=args.proxy) as client:
             results = fetch_range(
                 client, model, start, end, args.root, remote_dir=remote_dir, force=args.force
             )
-    except MissingCredentialsError as exc:
+    except (MissingCredentialsError, ProxyError) as exc:
         log.error("%s", exc)
         return 1
-    except (ftplib.Error, OSError, EOFError, zipfile.BadZipFile) as exc:
+    except (paramiko.SSHException, OSError, EOFError, zipfile.BadZipFile) as exc:
         log.error("download failed: %s", exc)
         return 1
 

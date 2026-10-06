@@ -34,7 +34,7 @@ def day_contents(d: date) -> dict[str, list[str] | None]:
 
 
 class Remote:
-    """A local directory standing in for the FTP model directory."""
+    """A local directory standing in for the SFTP model directory."""
 
     def __init__(self, path: Path) -> None:
         self.path = path

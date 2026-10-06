@@ -8,7 +8,7 @@ from datetime import date
 
 @dataclass(frozen=True)
 class FileSpec:
-    """One daily file on the FTP server.
+    """One daily file on the SFTP server.
 
     ``pattern`` may contain ``{yymmdd}`` and/or ``{yyyymmdd}`` placeholders,
     which are filled in with the file date.

@@ -9,4 +9,5 @@ The barra cne5 raw file is saved on ftp://ftp.barra.com/cne5/
     F. SMD_CNE5L_100_UnadjCov_yymmdd.zip
 2.Unzip all the files and save them under <Choosen Folder>/yyyy folder
 3.allow download a single day's data, or a batch download for a range of days   
-4.FTP username and password will be given in environment variables                                               
+4.FTP username and password will be given in environment variables
+5.Explicit support Proxy                                             
