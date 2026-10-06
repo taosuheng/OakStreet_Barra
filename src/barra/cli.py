@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import argparse
-import ftplib
 import logging
 import os
 import sys
 import zipfile
 from datetime import date, datetime
 from pathlib import Path
+
+import paramiko
 
 from .download import COMPLETE, NO_DATA, PARTIAL, DayResult, fetch_range
 from .ftp import BarraFTP, FtpCredentials, MissingCredentialsError
@@ -39,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="barra-download",
         description="Download Barra Models Direct files and unzip them into <root>/<yyyy>/. "
-        "FTP credentials are read from $BARRA_FTP_USER and $BARRA_FTP_PASSWORD.",
+        "SFTP credentials are read from $BARRA_FTP_USER and $BARRA_FTP_PASSWORD.",
     )
     p.add_argument(
         "--root",
@@ -52,7 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     when.add_argument("--date", type=_parse_date, help="single date YYYYMMDD (default: today)")
     when.add_argument("--start", type=_parse_date, help="first date of a range, YYYYMMDD")
     p.add_argument("--end", type=_parse_date, help="last date of a range, YYYYMMDD (default: today)")
-    p.add_argument("--remote-dir", help="FTP directory (default: the model's, e.g. /cne5/)")
+    p.add_argument("--remote-dir", help="remote directory (default: the model's, e.g. /cne5/)")
     p.add_argument(
         "--proxy",
         type=_parse_proxy,
@@ -77,6 +78,8 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    if not args.verbose:
+        logging.getLogger("paramiko").setLevel(logging.WARNING)
 
     model = MODELS[args.model]
     remote_dir = args.remote_dir or model.remote_dir
@@ -99,7 +102,7 @@ def main(argv: list[str] | None = None) -> int:
     except (MissingCredentialsError, ProxyError) as exc:
         log.error("%s", exc)
         return 1
-    except (ftplib.Error, OSError, EOFError, zipfile.BadZipFile) as exc:
+    except (paramiko.SSHException, OSError, EOFError, zipfile.BadZipFile) as exc:
         log.error("download failed: %s", exc)
         return 1
 

@@ -61,7 +61,7 @@ def test_unreachable_proxy_is_named_in_the_error(monkeypatch):
     monkeypatch.setattr(socket, "create_connection", refuse)
 
     with pytest.raises(ProxyConnectionError, match=r"cannot connect to proxy socks5h://127\.0\.0\.1:1080"):
-        Proxy("socks5h", "127.0.0.1", 1080).open("ftp.barra.com", 21)
+        Proxy("socks5h", "127.0.0.1", 1080).open("ftp.barra.com", 22)
 
 
 def test_from_env(monkeypatch):

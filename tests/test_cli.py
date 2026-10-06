@@ -125,7 +125,7 @@ def test_invalid_proxy_is_a_usage_error(run, monkeypatch, capsys):
 
 def test_proxy_refusal_exit_1(run, monkeypatch, caplog):
     def refuse(creds, proxy=None):
-        raise ProxyError(f"proxy {proxy} refused CONNECT ftp.barra.com:21: HTTP/1.1 403 Forbidden")
+        raise ProxyError(f"proxy {proxy} refused CONNECT ftp.barra.com:22: HTTP/1.1 403 Forbidden")
 
     monkeypatch.setattr(cli, "BarraFTP", refuse)
 

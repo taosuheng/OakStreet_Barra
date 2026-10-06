@@ -127,7 +127,7 @@ def test_credentials_from_env(monkeypatch):
 
     creds = FtpCredentials.from_env()
 
-    assert (creds.user, creds.password, creds.host, creds.port) == ("alice", "s3cret", "ftp.barra.com", 21)
+    assert (creds.user, creds.password, creds.host, creds.port) == ("alice", "s3cret", "ftp.barra.com", 22)
     assert "s3cret" not in repr(creds)
 
 

@@ -1,9 +1,8 @@
-"""Tunnel FTP connections through an HTTP CONNECT or SOCKS5 proxy."""
+"""Tunnel the SFTP connection through an HTTP CONNECT or SOCKS5 proxy."""
 
 from __future__ import annotations
 
 import base64
-import ftplib
 import ipaddress
 import os
 import socket
@@ -40,7 +39,7 @@ class ProxyConnectionError(ProxyError, OSError):
 class Proxy:
     """A proxy given as ``scheme://[user:password@]host:port``.
 
-    ``http`` tunnels with HTTP CONNECT. ``socks5`` resolves the FTP host locally,
+    ``http`` tunnels with HTTP CONNECT. ``socks5`` resolves the server name locally,
     ``socks5h`` leaves the lookup to the proxy.
     """
 
@@ -107,7 +106,7 @@ class Proxy:
             request.append(f"Proxy-Authorization: Basic {token}")
         sock.sendall("\r\n".join([*request, "", ""]).encode())
 
-        # Read byte by byte: whatever follows the blank line already comes from the FTP server.
+        # Read byte by byte: whatever follows the blank line already comes from the server.
         head = b""
         while not head.endswith((b"\r\n\r\n", b"\n\n")):
             if len(head) > 1 << 16:
@@ -152,56 +151,12 @@ class Proxy:
             error = ProxyError if reply in SOCKS5_REFUSALS else ProxyConnectionError
             reason = SOCKS5_REPLIES.get(reply, f"reply code {reply}")
             raise error(f"proxy {self} could not connect to {_hostport(host, port)}: {reason}")
-        # Skip the bound address so the stream starts at the FTP server's first byte.
+        # Skip the bound address so the stream starts at the server's first byte.
         if bound_type == 3:
             size = _recv_exact(sock, 1)[0]
         else:
             size = 16 if bound_type == 4 else 4
         _recv_exact(sock, size + 2)
-
-
-class ProxiedFTP(ftplib.FTP):
-    """``ftplib.FTP`` whose control and passive data connections go through a ``Proxy``."""
-
-    def __init__(self, proxy: Proxy, *, timeout: float) -> None:
-        super().__init__(timeout=timeout)
-        self.proxy = proxy
-
-    def connect(self, host="", port=0, timeout=-999, source_address=None):
-        if host != "":
-            self.host = host
-        if port > 0:
-            self.port = port
-        if timeout != -999:
-            self.timeout = timeout
-        self.sock = self.proxy.open(self.host, self.port, self.timeout)
-        self.af = self.sock.family
-        self.file = self.sock.makefile("r", encoding=self.encoding)
-        self.welcome = self.getresp()
-        return self.welcome
-
-    def makepasv(self):
-        # The control socket's peer is the proxy, not the FTP server, so the data
-        # connection is requested by the server's name, as for the control connection.
-        _, port = super().makepasv()
-        return self.host, port
-
-    def ntransfercmd(self, cmd, rest=None):
-        # Passive only: the server cannot connect back to us through the proxy.
-        host, port = self.makepasv()
-        conn = self.proxy.open(host, port, self.timeout)
-        try:
-            if rest is not None:
-                self.sendcmd(f"REST {rest}")
-            resp = self.sendcmd(cmd)
-            if resp[0] == "2":  # some servers send a stray 200 before the 150
-                resp = self.getresp()
-            if resp[0] != "1":
-                raise ftplib.error_reply(resp)
-        except BaseException:
-            conn.close()
-            raise
-        return conn, ftplib.parse150(resp) if resp[:3] == "150" else None
 
 
 def _hostport(host: str, port: int) -> str:
